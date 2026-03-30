@@ -53,3 +53,7 @@ def convert():
 
     final_audio.export(output_path, format="mp3")
     return send_file(output_path, as_attachment=True)
+if __name__ == '__main__':
+    # 必须指定 host='0.0.0.0'，否则容器外无法访问
+    app.run(host='0.0.0.0', port=5000, debug=True)
+
