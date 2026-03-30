@@ -4,45 +4,52 @@ from flask import Flask, render_template, request, send_file
 import edge_tts
 import pysrt
 import asyncio
+from pydub import AudioSegment
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-async def generate_audio(text, output_path, voice):
-    # 限制字符数防止过长报错
-    text = text[:200]
+async def generate_segment(text, voice):
+    """生成单段音频并返回 AudioSegment 对象"""
     communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_path)
-
-@app.route('/')
-def index():
-    return render_template('index.html')
+    # 将音频存入临时文件
+    temp_file = f"temp_{uuid.uuid4()}.mp3"
+    await communicate.save(temp_file)
+    audio = AudioSegment.from_mp3(temp_file)
+    os.remove(temp_file)
+    return audio
 
 @app.route('/convert', methods=['POST'])
 def convert():
-    if 'file' not in request.files:
-        return "没有文件", 400
-    
     file = request.files['file']
     voice = request.form.get('voice', 'zh-CN-XiaoxiaoNeural')
     
-    # 使用唯一文件名防止覆盖
     unique_id = str(uuid.uuid4())
-    filepath = os.path.join(UPLOAD_FOLDER, f"{unique_id}.srt")
+    srt_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}.srt")
     output_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}.mp3")
+    file.save(srt_path)
     
-    file.save(filepath)
+    subs = pysrt.open(srt_path)
     
-    # 解析 SRT
-    subs = pysrt.open(filepath)
-    if not subs:
-        return "SRT为空", 400
-        
-    # 运行异步任务
-    asyncio.run(generate_audio(subs[0].text, output_path, voice))
-    
-    return send_file(output_path, as_attachment=True)
+    # 初始化一个空白音频
+    final_audio = AudioSegment.empty()
+    last_end_time = 0
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    # 循环处理每一段
+    for sub in subs:
+        # 计算当前字幕开始时间（毫秒）
+        start_ms = sub.start.ordinal
+        # 插入静音，确保时间轴对齐
+        silence_duration = start_ms - last_end_time
+        if silence_duration > 0:
+            final_audio += AudioSegment.silent(duration=silence_duration)
+            
+        # 生成当前段语音
+        segment_audio = asyncio.run(generate_segment(sub.text, voice))
+        final_audio += segment_audio
+        
+        last_end_time = sub.end.ordinal
+
+    final_audio.export(output_path, format="mp3")
+    return send_file(output_path, as_attachment=True)
