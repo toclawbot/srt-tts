@@ -1,8 +1,9 @@
 services:
   srt-tts:
     build: .
+    container_name: srt-tts
     ports:
       - "5000:5000"
     volumes:
-      - ./uploads:/app/uploads
+      - .:/app 
     restart: unless-stopped
