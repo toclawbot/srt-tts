@@ -1,4 +1,5 @@
 import os
+import uuid
 from flask import Flask, render_template, request, send_file
 import edge_tts
 import pysrt
@@ -8,10 +9,10 @@ app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-async def generate_audio(text, output_path):
-    # 限制每段请求字符数，防止 edge-tts 报错
+async def generate_audio(text, output_path, voice):
+    # 限制字符数防止过长报错
     text = text[:200]
-    communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
+    communicate = edge_tts.Communicate(text, voice)
     await communicate.save(output_path)
 
 @app.route('/')
@@ -20,16 +21,26 @@ def index():
 
 @app.route('/convert', methods=['POST'])
 def convert():
+    if 'file' not in request.files:
+        return "没有文件", 400
+    
     file = request.files['file']
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    voice = request.form.get('voice', 'zh-CN-XiaoxiaoNeural')
+    
+    # 使用唯一文件名防止覆盖
+    unique_id = str(uuid.uuid4())
+    filepath = os.path.join(UPLOAD_FOLDER, f"{unique_id}.srt")
+    output_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}.mp3")
+    
     file.save(filepath)
     
-    # 这里简化：仅处理第一个字幕段作为测试
+    # 解析 SRT
     subs = pysrt.open(filepath)
-    output_path = os.path.join(UPLOAD_FOLDER, "output.mp3")
-    
-    # 同步运行异步任务
-    asyncio.run(generate_audio(subs[0].text, output_path))
+    if not subs:
+        return "SRT为空", 400
+        
+    # 运行异步任务
+    asyncio.run(generate_audio(subs[0].text, output_path, voice))
     
     return send_file(output_path, as_attachment=True)
 
