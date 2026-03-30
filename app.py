@@ -10,6 +10,10 @@ app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+@app.route('/')
+def index():
+    return render_template('index.html')
+
 async def generate_segment(text, voice):
     """生成单段音频并返回 AudioSegment 对象"""
     communicate = edge_tts.Communicate(text, voice)
