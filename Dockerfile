@@ -9,7 +9,9 @@ RUN apk add --no-cache \
     musl-dev \
     python3-dev \
     libffi-dev \
-    openssl-dev
+    openssl-dev \
+    cargo \
+    rust
 
 COPY requirements.txt .
 
@@ -28,7 +30,9 @@ RUN apk add --no-cache \
     libogg \
     libvorbis \
     flac \
-    opusfile && \
+    opusfile \
+    gcompat \
+    libstdc++ && \
     rm -rf /var/cache/apk/*
 
 WORKDIR /app
