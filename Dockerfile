@@ -25,7 +25,7 @@ FROM python:3.9-alpine
 # 安装运行时依赖（ffmpeg 和音频库）
 RUN apk add --no-cache \
     ffmpeg \
-    libsoxr \
+    soxr \
     lame \
     libogg \
     libvorbis \
