@@ -9,7 +9,7 @@
 <body class="bg-gray-50 flex items-center justify-center min-h-screen">
     <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100">
         <h1 class="text-2xl font-bold text-gray-800 mb-6 text-center">SRT 语音合成</h1>
-        <form action="/convert" method="post" enctype="multipart/form-data" class="space-y-5">
+        <form id="convertForm" class="space-y-5">
             <div>
                 <label class="block text-sm font-medium text-gray-600 mb-1">上传 SRT 文件</label>
                 <input type="file" name="file" required class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
@@ -27,8 +27,36 @@
                 <label class="block text-sm font-medium text-gray-600 mb-1">语速: <span id="rateValue">1.0x</span></label>
                 <input type="range" name="rate" min="0.5" max="2.0" step="0.1" value="1.0" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
             </div>
-            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg transition duration-200">开始转换</button>
+            <button type="submit" id="convertBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg transition duration-200">开始转换</button>
         </form>
+
+        <!-- 进度条区域 -->
+        <div id="progressArea" class="mt-6 hidden">
+            <div class="flex justify-between text-sm text-gray-600 mb-2">
+                <span id="progressText">正在转换...</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-3">
+                <div id="progressBar" class="bg-blue-600 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p id="progressDetail" class="text-xs text-gray-400 mt-1">0 / 0</p>
+        </div>
+
+        <!-- 下载区域 -->
+        <div id="downloadArea" class="mt-6 hidden">
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                <p class="text-green-800 font-medium mb-3">✅ 转换完成！</p>
+                <a id="downloadBtn" href="#" class="block w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-lg transition duration-200 text-center">下载音频</a>
+            </div>
+        </div>
+
+        <!-- 错误区域 -->
+        <div id="errorArea" class="mt-6 hidden">
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p class="text-red-800 font-medium">❌ 转换失败</p>
+                <p id="errorMessage" class="text-red-600 text-sm mt-1"></p>
+            </div>
+        </div>
 
         <div class="mt-8 pt-6 border-t border-gray-200">
             <h2 class="text-lg font-semibold text-gray-700 mb-4">在线试听</h2>
@@ -92,6 +120,106 @@
                 this.textContent = '试听';
             }
         });
+
+        // 转换表单提交
+        document.getElementById('convertForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const formData = new FormData(this);
+            const convertBtn = document.getElementById('convertBtn');
+            const progressArea = document.getElementById('progressArea');
+            const downloadArea = document.getElementById('downloadArea');
+            const errorArea = document.getElementById('errorArea');
+
+            // 重置UI
+            progressArea.classList.add('hidden');
+            downloadArea.classList.add('hidden');
+            errorArea.classList.add('hidden');
+            convertBtn.disabled = true;
+            convertBtn.textContent = '正在转换...';
+
+            try {
+                const response = await fetch('/convert', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || '转换失败');
+                }
+
+                const result = await response.json();
+                const taskId = result.task_id;
+
+                // 显示进度条
+                progressArea.classList.remove('hidden');
+
+                // 轮询进度
+                pollProgress(taskId);
+
+            } catch (error) {
+                errorArea.classList.remove('hidden');
+                document.getElementById('errorMessage').textContent = error.message;
+                convertBtn.disabled = false;
+                convertBtn.textContent = '开始转换';
+            }
+        });
+
+        // 轮询进度
+        async function pollProgress(taskId) {
+            const progressBar = document.getElementById('progressBar');
+            const progressPercent = document.getElementById('progressPercent');
+            const progressDetail = document.getElementById('progressDetail');
+            const progressText = document.getElementById('progressText');
+            const downloadArea = document.getElementById('downloadArea');
+            const errorArea = document.getElementById('errorArea');
+            const convertBtn = document.getElementById('convertBtn');
+
+            try {
+                const response = await fetch(`/progress/${taskId}`);
+                if (!response.ok) {
+                    throw new Error('获取进度失败');
+                }
+
+                const data = await response.json();
+
+                if (data.status === 'processing') {
+                    // 更新进度条
+                    progressBar.style.width = data.percentage + '%';
+                    progressPercent.textContent = data.percentage + '%';
+                    progressDetail.textContent = `${data.current} / ${data.total}`;
+                    progressText.textContent = '正在转换...';
+
+                    // 继续轮询
+                    setTimeout(() => pollProgress(taskId), 500);
+                } else if (data.status === 'completed') {
+                    // 转换完成
+                    progressBar.style.width = '100%';
+                    progressPercent.textContent = '100%';
+                    progressDetail.textContent = `${data.total} / ${data.total}`;
+                    progressText.textContent = '转换完成！';
+
+                    // 显示下载按钮
+                    downloadArea.classList.remove('hidden');
+                    document.getElementById('downloadBtn').href = `/download/${taskId}`;
+
+                    convertBtn.disabled = false;
+                    convertBtn.textContent = '开始转换';
+                } else if (data.status === 'failed') {
+                    // 转换失败
+                    errorArea.classList.remove('hidden');
+                    document.getElementById('errorMessage').textContent = data.error || '转换失败';
+                    convertBtn.disabled = false;
+                    convertBtn.textContent = '开始转换';
+                }
+            } catch (error) {
+                errorArea.classList.remove('hidden');
+                document.getElementById('errorMessage').textContent = error.message;
+                convertBtn.disabled = false;
+                convertBtn.textContent = '开始转换';
+            }
+        }
     </script>
 </body>
 </html>

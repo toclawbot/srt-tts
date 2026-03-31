@@ -14,6 +14,9 @@ TEMP_FOLDER = 'temp'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(TEMP_FOLDER, exist_ok=True)
 
+# 存储转换进度
+conversion_progress = {}
+
 
 def cleanup_temp_files():
     """清理临时文件"""
@@ -118,20 +121,29 @@ def convert():
         except ValueError:
             rate_str = '+0%'
 
-        unique_id = str(uuid.uuid4())
-        srt_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}.srt")
-        output_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}.mp3")
+        task_id = str(uuid.uuid4())
+        srt_path = os.path.join(UPLOAD_FOLDER, f"{task_id}.srt")
+        output_path = os.path.join(UPLOAD_FOLDER, f"{task_id}.mp3")
 
         file.save(srt_path)
 
         subs = pysrt.open(srt_path)
+        total_segments = len(subs)
+
+        # 初始化进度
+        conversion_progress[task_id] = {
+            'status': 'processing',
+            'current': 0,
+            'total': total_segments,
+            'output_path': output_path
+        }
 
         # 初始化一个空白音频
         final_audio = AudioSegment.empty()
         last_end_time = 0
 
         # 循环处理每一段
-        for sub in subs:
+        for i, sub in enumerate(subs):
             # 计算当前字幕开始时间（毫秒）
             start_ms = sub.start.ordinal
             # 插入静音，确保时间轴对齐
@@ -145,16 +157,59 @@ def convert():
 
             last_end_time = sub.end.ordinal
 
+            # 更新进度
+            conversion_progress[task_id]['current'] = i + 1
+
         final_audio.export(output_path, format="mp3")
 
         # 清理上传的 SRT 文件
         if os.path.exists(srt_path):
             os.remove(srt_path)
 
-        return send_file(output_path, as_attachment=True)
+        # 标记为完成
+        conversion_progress[task_id]['status'] = 'completed'
+
+        return jsonify({'task_id': task_id})
 
     except Exception as e:
+        # 标记为失败
+        if 'task_id' in locals():
+            conversion_progress[task_id]['status'] = 'failed'
+            conversion_progress[task_id]['error'] = str(e)
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/progress/<task_id>', methods=['GET'])
+def get_progress(task_id):
+    """获取转换进度"""
+    if task_id not in conversion_progress:
+        return jsonify({'error': '任务不存在'}), 404
+
+    progress = conversion_progress[task_id]
+    return jsonify({
+        'status': progress['status'],
+        'current': progress['current'],
+        'total': progress['total'],
+        'percentage': int((progress['current'] / progress['total']) * 100) if progress['total'] > 0 else 0,
+        'error': progress.get('error', None)
+    })
+
+
+@app.route('/download/<task_id>', methods=['GET'])
+def download(task_id):
+    """下载转换后的文件"""
+    if task_id not in conversion_progress:
+        return jsonify({'error': '任务不存在'}), 404
+
+    progress = conversion_progress[task_id]
+    if progress['status'] != 'completed':
+        return jsonify({'error': '任务未完成'}), 400
+
+    output_path = progress['output_path']
+    if not os.path.exists(output_path):
+        return jsonify({'error': '文件不存在'}), 404
+
+    return send_file(output_path, as_attachment=True, download_name='output.mp3')
 
 
 @app.route('/health', methods=['GET'])
