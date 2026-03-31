@@ -52,6 +52,50 @@ async def generate_segment(text, voice, rate='+0%'):
             os.remove(temp_file)
 
 
+@app.route('/preview', methods=['POST'])
+def preview():
+    """试听端点 - 生成短文本音频用于预览"""
+    try:
+        data = request.get_json()
+        text = data.get('text', '').strip()
+        voice = data.get('voice', 'zh-CN-XiaoxiaoNeural')
+        rate = data.get('rate', '1.0')
+
+        if not text:
+            return jsonify({'error': '文本不能为空'}), 400
+
+        if len(text) > 50:
+            return jsonify({'error': '文本不能超过50个字符'}), 400
+
+        # 将语速转换为 edge-tts 格式
+        try:
+            rate_float = float(rate)
+            rate_percent = int((rate_float - 1.0) * 100)
+            rate_str = f'{rate_percent:+d}%'
+        except ValueError:
+            rate_str = '+0%'
+
+        # 生成音频
+        communicate = edge_tts.Communicate(text, voice, rate=rate_str)
+        temp_file = os.path.join(TEMP_FOLDER, f"preview_{uuid.uuid4()}.mp3")
+
+        try:
+            asyncio.run(communicate.save(temp_file))
+            return send_file(temp_file, mimetype='audio/mpeg')
+        finally:
+            # 延迟删除临时文件，确保音频传输完成
+            import threading
+            def delayed_remove():
+                import time
+                time.sleep(5)
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            threading.Thread(target=delayed_remove).start()
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/convert', methods=['POST'])
 def convert():
     try:
