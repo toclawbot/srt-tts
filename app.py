@@ -31,9 +31,15 @@ def index():
     return render_template('index.html')
 
 
-async def generate_segment(text, voice):
-    """生成单段音频并返回 AudioSegment 对象"""
-    communicate = edge_tts.Communicate(text, voice)
+async def generate_segment(text, voice, rate='+0%'):
+    """生成单段音频并返回 AudioSegment 对象
+
+    Args:
+        text: 要转换的文本
+        voice: 语音类型
+        rate: 语速，默认 '+0%'，可以是 '+50%' (加速) 或 '-50%' (减速)
+    """
+    communicate = edge_tts.Communicate(text, voice, rate=rate)
     # 将音频存入临时文件
     temp_file = os.path.join(TEMP_FOLDER, f"temp_{uuid.uuid4()}.mp3")
     try:
@@ -57,6 +63,16 @@ def convert():
             return jsonify({'error': '文件名为空'}), 400
 
         voice = request.form.get('voice', 'zh-CN-XiaoxiaoNeural')
+        rate = request.form.get('rate', '1.0')
+
+        # 将语速转换为 edge-tts 格式
+        # 1.0 -> '+0%', 1.5 -> '+50%', 0.8 -> '-20%'
+        try:
+            rate_float = float(rate)
+            rate_percent = int((rate_float - 1.0) * 100)
+            rate_str = f'{rate_percent:+d}%'
+        except ValueError:
+            rate_str = '+0%'
 
         unique_id = str(uuid.uuid4())
         srt_path = os.path.join(UPLOAD_FOLDER, f"{unique_id}.srt")
@@ -80,7 +96,7 @@ def convert():
                 final_audio += AudioSegment.silent(duration=silence_duration)
 
             # 生成当前段语音
-            segment_audio = asyncio.run(generate_segment(sub.text, voice))
+            segment_audio = asyncio.run(generate_segment(sub.text, voice, rate_str))
             final_audio += segment_audio
 
             last_end_time = sub.end.ordinal

@@ -23,8 +23,17 @@
                     <option value="zh-CN-XiaoyiNeural">晓伊 (女声)</option>
                 </select>
             </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">语速: <span id="rateValue">1.0x</span></label>
+                <input type="range" name="rate" min="0.5" max="2.0" step="0.1" value="1.0" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
             <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg transition duration-200">开始转换</button>
         </form>
     </div>
+    <script>
+        document.querySelector('input[name="rate"]').addEventListener('input', function() {
+            document.getElementById('rateValue').textContent = this.value + 'x';
+        });
+    </script>
 </body>
 </html>
