@@ -1,8 +1,25 @@
 services:
   srt-tts:
-    build: .
+    image: toclawbot/srt-tts:v1
     ports:
       - "5000:5000"
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+
+  srt-tts-v2:
+    image: toclawbot/srt-tts:v2
+    ports:
+      - "5001:5000"
     volumes:
       - ./uploads:/app/uploads
     restart: unless-stopped

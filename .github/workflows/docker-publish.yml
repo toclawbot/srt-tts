@@ -27,7 +27,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push v1 (智能拼接版本)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -37,5 +37,20 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/srt-tts:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/srt-tts:${{ steps.version.outputs.tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/srt-tts:v1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push v2 (分段生成版本)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.v2
+          push: true
+          # 同时构建 AMD64 和 ARM64
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/srt-tts:v2
+            ${{ secrets.DOCKERHUB_USERNAME }}/srt-tts:${{ steps.version.outputs.tag }}-v2
           cache-from: type=gha
           cache-to: type=gha,mode=max
