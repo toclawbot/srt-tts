@@ -109,15 +109,6 @@ def convert():
         if file.filename == '':
             return jsonify({'error': '文件名为空'}), 400
 
-        # 检查文件大小限制（50MB）
-        file.seek(0, 2)  # 移动到文件末尾
-        file_size = file.tell()
-        file.seek(0)  # 重置文件指针
-        
-        MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-        if file_size > MAX_FILE_SIZE:
-            return jsonify({'error': f'文件大小超过限制（最大{MAX_FILE_SIZE//1024//1024}MB）'}), 400
-
         voice = request.form.get('voice', 'zh-CN-XiaoxiaoNeural')
         rate = request.form.get('rate', '1.0')
 
@@ -136,23 +127,8 @@ def convert():
 
         file.save(srt_path)
 
-        # 检查字幕文件行数限制
-        with open(srt_path, 'r', encoding='utf-8') as f:
-            line_count = sum(1 for _ in f)
-        
-        MAX_LINES = 10000  # 限制字幕行数
-        if line_count > MAX_LINES:
-            os.remove(srt_path)
-            return jsonify({'error': f'字幕文件过大（最多{MAX_LINES}行）'}), 400
-
         subs = pysrt.open(srt_path)
         total_segments = len(subs)
-
-        # 限制字幕段数
-        MAX_SEGMENTS = 1000
-        if total_segments > MAX_SEGMENTS:
-            os.remove(srt_path)
-            return jsonify({'error': f'字幕段数过多（最多{MAX_SEGMENTS}段）'}), 400
 
         # 初始化进度
         conversion_progress[task_id] = {
@@ -162,27 +138,50 @@ def convert():
             'output_path': output_path
         }
 
+        # 如果字幕文件很大，提示用户
+        if total_segments > 100:
+            print(f"处理大文件: {total_segments}段字幕，将使用智能分批处理")
+
         # 初始化一个空白音频
         final_audio = AudioSegment.empty()
         last_end_time = 0
 
-        # 循环处理每一段
-        for i, sub in enumerate(subs):
-            # 计算当前字幕开始时间（毫秒）
-            start_ms = sub.start.ordinal
-            # 插入静音，确保时间轴对齐
-            silence_duration = start_ms - last_end_time
-            if silence_duration > 0:
-                final_audio += AudioSegment.silent(duration=silence_duration)
+        # 分批处理配置
+        BATCH_SIZE = 100  # 每批处理100段字幕
+        batch_count = (total_segments + BATCH_SIZE - 1) // BATCH_SIZE
 
-            # 生成当前段语音
-            segment_audio = asyncio.run(generate_segment(sub.text, voice, rate_str))
-            final_audio += segment_audio
+        print(f"字幕总数: {total_segments}, 将分为 {batch_count} 批处理")
 
-            last_end_time = sub.end.ordinal
+        # 分批处理每一段
+        for batch_index in range(batch_count):
+            start_index = batch_index * BATCH_SIZE
+            end_index = min((batch_index + 1) * BATCH_SIZE, total_segments)
+            batch_subs = subs[start_index:end_index]
 
-            # 更新进度
-            conversion_progress[task_id]['current'] = i + 1
+            print(f"处理批次 {batch_index + 1}/{batch_count}: {start_index}-{end_index}")
+
+            # 处理当前批次
+            for i, sub in enumerate(batch_subs):
+                # 计算当前字幕开始时间（毫秒）
+                start_ms = sub.start.ordinal
+                # 插入静音，确保时间轴对齐
+                silence_duration = start_ms - last_end_time
+                if silence_duration > 0:
+                    final_audio += AudioSegment.silent(duration=silence_duration)
+
+                # 生成当前段语音
+                segment_audio = asyncio.run(generate_segment(sub.text, voice, rate_str))
+                final_audio += segment_audio
+
+                last_end_time = sub.end.ordinal
+
+                # 更新进度
+                current_segment = start_index + i + 1
+                conversion_progress[task_id]['current'] = current_segment
+
+            # 批次间短暂延迟，避免资源过载
+            if batch_index < batch_count - 1:
+                time.sleep(1)
 
         final_audio.export(output_path, format="mp3")
 

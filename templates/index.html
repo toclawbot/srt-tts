@@ -201,10 +201,17 @@
 
                 if (data.status === 'processing') {
                     // 更新进度条
-                    progressBar.style.width = data.percentage + '%';
-                    progressPercent.textContent = data.percentage + '%';
+                    const percentage = Math.round((data.current / data.total) * 100);
+                    progressBar.style.width = percentage + '%';
+                    progressPercent.textContent = percentage + '%';
                     progressDetail.textContent = `${data.current} / ${data.total}`;
-                    progressText.textContent = '正在转换...';
+                    
+                    // 根据文件大小显示不同的提示
+                    if (data.total > 100) {
+                        progressText.textContent = '正在分批处理大文件...';
+                    } else {
+                        progressText.textContent = '正在转换...';
+                    }
 
                     // 继续轮询
                     setTimeout(() => pollProgress(taskId), 500);
