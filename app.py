@@ -44,10 +44,10 @@ async def generate_segment(text, voice, rate='+0%'):
     """
     communicate = edge_tts.Communicate(text, voice, rate=rate)
     # 将音频存入临时文件
-    temp_file = os.path.join(TEMP_FOLDER, f"temp_{uuid.uuid4()}.mp3")
+    temp_file = os.path.join(TEMP_FOLDER, f"temp_{uuid.uuid4()}.wav")
     try:
         await communicate.save(temp_file)
-        audio = AudioSegment.from_mp3(temp_file)
+        audio = AudioSegment.from_wav(temp_file)
         return audio
     finally:
         # 确保临时文件被删除
@@ -80,7 +80,7 @@ def preview():
 
         # 生成音频
         communicate = edge_tts.Communicate(text, voice, rate=rate_str)
-        temp_file = os.path.join(TEMP_FOLDER, f"preview_{uuid.uuid4()}.mp3")
+        temp_file = os.path.join(TEMP_FOLDER, f"preview_{uuid.uuid4()}.wav")
 
         try:
             asyncio.run(communicate.save(temp_file))
@@ -101,6 +101,9 @@ def preview():
 
 @app.route('/convert', methods=['POST'])
 def convert():
+    task_id = None
+    srt_path = None
+    
     try:
         if 'file' not in request.files:
             return jsonify({'error': '没有上传文件'}), 400
@@ -113,7 +116,6 @@ def convert():
         rate = request.form.get('rate', '1.0')
 
         # 将语速转换为 edge-tts 格式
-        # 1.0 -> '+0%', 1.5 -> '+50%', 0.8 -> '-20%'
         try:
             rate_float = float(rate)
             rate_percent = int((rate_float - 1.0) * 100)
@@ -123,7 +125,7 @@ def convert():
 
         task_id = str(uuid.uuid4())
         srt_path = os.path.join(UPLOAD_FOLDER, f"{task_id}.srt")
-        output_path = os.path.join(UPLOAD_FOLDER, f"{task_id}.mp3")
+        output_path = os.path.join(UPLOAD_FOLDER, f"{task_id}.wav")
 
         file.save(srt_path)
 
@@ -135,22 +137,30 @@ def convert():
             'status': 'processing',
             'current': 0,
             'total': total_segments,
-            'output_path': output_path
+            'output_path': output_path,
+            'percentage': 0
         }
 
         # 如果字幕文件很大，提示用户
         if total_segments > 100:
             print(f"处理大文件: {total_segments}段字幕，将使用智能分批处理")
+            
+        # 立即返回任务ID，避免前端超时
+        return jsonify({'task_id': task_id})
 
         # 初始化一个空白音频
         final_audio = AudioSegment.empty()
         last_end_time = 0
 
-        # 分批处理配置
-        BATCH_SIZE = 100  # 每批处理100段字幕
+        # 真正的分批处理实现
+        BATCH_SIZE = 50  # 每批处理50段字幕，避免内存溢出
         batch_count = (total_segments + BATCH_SIZE - 1) // BATCH_SIZE
 
         print(f"字幕总数: {total_segments}, 将分为 {batch_count} 批处理")
+
+        # 初始化一个空白音频
+        final_audio = AudioSegment.empty()
+        last_end_time = 0
 
         # 分批处理每一段
         for batch_index in range(batch_count):
@@ -162,28 +172,37 @@ def convert():
 
             # 处理当前批次
             for i, sub in enumerate(batch_subs):
-                # 计算当前字幕开始时间（毫秒）
-                start_ms = sub.start.ordinal
-                # 插入静音，确保时间轴对齐
-                silence_duration = start_ms - last_end_time
-                if silence_duration > 0:
-                    final_audio += AudioSegment.silent(duration=silence_duration)
+                try:
+                    # 计算当前字幕开始时间（毫秒）
+                    start_ms = sub.start.ordinal
+                    # 插入静音，确保时间轴对齐
+                    silence_duration = start_ms - last_end_time
+                    if silence_duration > 0:
+                        final_audio += AudioSegment.silent(duration=silence_duration)
 
-                # 生成当前段语音
-                segment_audio = asyncio.run(generate_segment(sub.text, voice, rate_str))
-                final_audio += segment_audio
+                    # 生成当前段语音
+                    segment_audio = asyncio.run(generate_segment(sub.text, voice, rate_str))
+                    final_audio += segment_audio
 
-                last_end_time = sub.end.ordinal
+                    last_end_time = sub.end.ordinal
 
-                # 更新进度
-                current_segment = start_index + i + 1
-                conversion_progress[task_id]['current'] = current_segment
+                    # 更新进度
+                    current_segment = start_index + i + 1
+                    conversion_progress[task_id]['current'] = current_segment
+                    conversion_progress[task_id]['percentage'] = int((current_segment / total_segments) * 100)
+
+                except Exception as e:
+                    print(f"处理第{current_segment}段字幕时出错: {e}")
+                    # 跳过错误段，继续处理
+                    continue
 
             # 批次间短暂延迟，避免资源过载
             if batch_index < batch_count - 1:
+                print(f"批次 {batch_index + 1} 完成，等待1秒后继续...")
                 time.sleep(1)
 
-        final_audio.export(output_path, format="mp3")
+        # 使用WAV格式，避免ffmpeg依赖
+        final_audio.export(output_path, format="wav")
 
         # 清理上传的 SRT 文件
         if os.path.exists(srt_path):
@@ -237,7 +256,7 @@ def download(task_id):
     if not os.path.exists(output_path):
         return jsonify({'error': '文件不存在'}), 404
 
-    return send_file(output_path, as_attachment=True, download_name='output.mp3')
+    return send_file(output_path, as_attachment=True, download_name='output.wav')
 
 
 @app.route('/health', methods=['GET'])
