@@ -110,8 +110,14 @@
                     audioPlayer.classList.remove('hidden');
                     audioPlayer.play();
                 } else {
-                    const error = await response.json();
-                    alert('生成失败: ' + error.error);
+                    // 尝试解析错误信息
+                    try {
+                        const errorData = await response.json();
+                        alert('生成失败: ' + errorData.error);
+                    } catch (jsonError) {
+                        // 如果不是JSON，显示状态信息
+                        alert('生成失败: HTTP ' + response.status);
+                    }
                 }
             } catch (error) {
                 alert('请求失败: ' + error.message);

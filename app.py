@@ -183,6 +183,54 @@ def download(task_id):
     return send_file(output_path, as_attachment=True, download_name='output.wav')
 
 
+@app.route('/preview', methods=['POST'])
+def preview():
+    """试听功能 - 生成并返回试听音频"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '请求数据为空'}), 400
+            
+        text = data.get('text', '').strip()
+        voice = data.get('voice', 'zh-CN-XiaoxiaoNeural')
+        rate = data.get('rate', '1.0')
+        
+        if not text:
+            return jsonify({'error': '试听文本不能为空'}), 400
+            
+        # 限制文本长度
+        if len(text) > 50:
+            return jsonify({'error': '试听文本不能超过50个字符'}), 400
+        
+        # 生成临时文件路径
+        task_id = str(uuid.uuid4())
+        output_path = os.path.join(TEMP_FOLDER, f'preview_{task_id}.wav')
+        
+        # 转换rate格式 (1.0 -> +0%, 1.5 -> +50%)
+        try:
+            rate_float = float(rate)
+            rate_percent = int((rate_float - 1.0) * 100)
+            rate_str = f'{rate_percent:+d}%'
+        except ValueError:
+            rate_str = '+0%'
+            
+        # 使用edge-tts生成音频
+        communicate = edge_tts.Communicate(text, voice, rate=rate_str)
+        
+        # 使用异步运行
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(communicate.save(output_path))
+        loop.close()
+        
+        # 返回音频文件
+        return send_file(output_path, mimetype='audio/wav')
+        
+    except Exception as e:
+        print(f"试听生成错误: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/health', methods=['GET'])
 def health():
     """健康检查端点"""
