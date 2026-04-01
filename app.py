@@ -109,6 +109,15 @@ def convert():
         if file.filename == '':
             return jsonify({'error': '文件名为空'}), 400
 
+        # 检查文件大小限制（50MB）
+        file.seek(0, 2)  # 移动到文件末尾
+        file_size = file.tell()
+        file.seek(0)  # 重置文件指针
+        
+        MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({'error': f'文件大小超过限制（最大{MAX_FILE_SIZE//1024//1024}MB）'}), 400
+
         voice = request.form.get('voice', 'zh-CN-XiaoxiaoNeural')
         rate = request.form.get('rate', '1.0')
 
@@ -127,8 +136,23 @@ def convert():
 
         file.save(srt_path)
 
+        # 检查字幕文件行数限制
+        with open(srt_path, 'r', encoding='utf-8') as f:
+            line_count = sum(1 for _ in f)
+        
+        MAX_LINES = 10000  # 限制字幕行数
+        if line_count > MAX_LINES:
+            os.remove(srt_path)
+            return jsonify({'error': f'字幕文件过大（最多{MAX_LINES}行）'}), 400
+
         subs = pysrt.open(srt_path)
         total_segments = len(subs)
+
+        # 限制字幕段数
+        MAX_SEGMENTS = 1000
+        if total_segments > MAX_SEGMENTS:
+            os.remove(srt_path)
+            return jsonify({'error': f'字幕段数过多（最多{MAX_SEGMENTS}段）'}), 400
 
         # 初始化进度
         conversion_progress[task_id] = {
@@ -176,6 +200,11 @@ def convert():
         if 'task_id' in locals():
             conversion_progress[task_id]['status'] = 'failed'
             conversion_progress[task_id]['error'] = str(e)
+        
+        # 清理临时文件
+        if 'srt_path' in locals() and os.path.exists(srt_path):
+            os.remove(srt_path)
+            
         return jsonify({'error': str(e)}), 500
 
 

@@ -166,6 +166,20 @@
             }
         });
 
+        // 修复JSON解析错误的函数
+        async function safeJsonParse(response) {
+            try {
+                const text = await response.text();
+                if (!text.trim()) {
+                    throw new Error('响应为空');
+                }
+                return JSON.parse(text);
+            } catch (parseError) {
+                console.error('JSON解析错误:', parseError, '原始响应:', text);
+                throw new Error(`服务器响应格式错误: ${parseError.message}`);
+            }
+        }
+
         // 轮询进度
         async function pollProgress(taskId) {
             const progressBar = document.getElementById('progressBar');
@@ -179,10 +193,11 @@
             try {
                 const response = await fetch(`/progress/${taskId}`);
                 if (!response.ok) {
-                    throw new Error('获取进度失败');
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
 
-                const data = await response.json();
+                // 使用安全的JSON解析
+                const data = await safeJsonParse(response);
 
                 if (data.status === 'processing') {
                     // 更新进度条
@@ -214,8 +229,12 @@
                     convertBtn.textContent = '开始转换';
                 }
             } catch (error) {
+                console.error('进度轮询错误:', error);
                 errorArea.classList.remove('hidden');
-                document.getElementById('errorMessage').textContent = error.message;
+                document.getElementById('errorMessage').textContent = 
+                    error.message.includes('JSON.parse') ? 
+                    '服务器响应格式错误，请检查文件大小或重试' : 
+                    error.message;
                 convertBtn.disabled = false;
                 convertBtn.textContent = '开始转换';
             }
