@@ -87,15 +87,29 @@ def convert():
         def process_audio_in_background():
             try:
                 if total_segments > 0:
-                    # 将所有字幕文本拼接成一个长文本
+                    # 智能拼接字幕文本（基于时间轴对齐）
                     full_text = ""
                     for i, sub in enumerate(subs):
                         # 更新进度
                         conversion_progress[task_id]['current'] = i + 1
                         conversion_progress[task_id]['percentage'] = int(((i + 1) / total_segments) * 100)
                         
-                        # 添加字幕文本，用换行分隔
-                        full_text += sub.text + "\n"
+                        # 智能拼接逻辑
+                        if i > 0:
+                            # 计算与前一个字幕的时间间隔
+                            time_gap = sub.start - subs[i-1].end
+                            gap_seconds = time_gap.ordinal / 1000.0  # 转换为秒
+                            
+                            # 根据时间间隔添加适当的标点符号
+                            if gap_seconds > 2:
+                                full_text += "。 "  # 长停顿用句号
+                            elif gap_seconds > 0.5:
+                                full_text += "， "  # 短停顿用逗号
+                            else:
+                                full_text += " "    # 连续用空格
+                        
+                        # 添加当前字幕文本
+                        full_text += sub.text
                         print(f"处理进度: {i+1}/{total_segments} ({conversion_progress[task_id]['percentage']}%)")
                     
                     # 一次性转换所有文本
