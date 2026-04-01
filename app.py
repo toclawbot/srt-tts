@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+简化的SRT到TTS转换器
+将所有字幕文本拼接成一个长文本，然后一次性转换
+"""
+
 import os
 import uuid
 import shutil
@@ -5,7 +11,6 @@ from flask import Flask, render_template, request, send_file, jsonify
 import edge_tts
 import pysrt
 import asyncio
-from pydub import AudioSegment
 import threading
 
 app = Flask(__name__)
@@ -33,27 +38,6 @@ def cleanup_temp_files():
 @app.route('/')
 def index():
     return render_template('index.html')
-
-
-async def generate_segment(text, voice, rate='+0%'):
-    """生成单段音频并返回 AudioSegment 对象
-
-    Args:
-        text: 要转换的文本
-        voice: 语音类型
-        rate: 语速，默认 '+0%'，可以是 '+50%' (加速) 或 '-50%' (减速)
-    """
-    communicate = edge_tts.Communicate(text, voice, rate=rate)
-    # 将音频存入临时文件
-    temp_file = os.path.join(TEMP_FOLDER, f"temp_{uuid.uuid4()}.wav")
-    try:
-        await communicate.save(temp_file)
-        audio = AudioSegment.from_wav(temp_file)
-        return audio
-    finally:
-        # 确保临时文件被删除
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
 
 
 @app.route('/convert', methods=['POST'])
@@ -98,18 +82,24 @@ def convert():
             'percentage': 0
         }
 
-        # 如果字幕文件很大，提示用户
-        if total_segments > 100:
-            print(f"处理大文件: {total_segments}段字幕，将使用智能分批处理")
-            
         # 立即返回任务ID，避免前端超时
         # 在后台处理音频转换
         def process_audio_in_background():
             try:
-                # 简化处理：只生成第一个字幕的音频
                 if total_segments > 0:
-                    first_sub = subs[0]
-                    communicate = edge_tts.Communicate(first_sub.text, voice, rate=rate_str)
+                    # 将所有字幕文本拼接成一个长文本
+                    full_text = ""
+                    for i, sub in enumerate(subs):
+                        # 更新进度
+                        conversion_progress[task_id]['current'] = i + 1
+                        conversion_progress[task_id]['percentage'] = int(((i + 1) / total_segments) * 100)
+                        
+                        # 添加字幕文本，用换行分隔
+                        full_text += sub.text + "\n"
+                        print(f"处理进度: {i+1}/{total_segments} ({conversion_progress[task_id]['percentage']}%)")
+                    
+                    # 一次性转换所有文本
+                    communicate = edge_tts.Communicate(full_text, voice, rate=rate_str)
                     temp_file = os.path.join(TEMP_FOLDER, f"temp_{uuid.uuid4()}.wav")
                     
                     # 使用异步运行
@@ -176,6 +166,7 @@ def get_progress(task_id):
 
 
 @app.route('/download/<task_id>', methods=['GET'])
+@app.route('/download/<task_id>.wav', methods=['GET'])
 def download(task_id):
     """下载转换后的音频文件"""
     if task_id not in conversion_progress:
