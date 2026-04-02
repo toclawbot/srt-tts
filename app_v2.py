@@ -7,6 +7,7 @@ SRT到TTS转换器 - v2版本（分段生成 + 音频拼接）
 import os
 import uuid
 import shutil
+import subprocess
 from flask import Flask, render_template, request, send_file, jsonify
 import edge_tts
 import pysrt
@@ -107,7 +108,13 @@ def convert():
                         segment_path = os.path.join(TEMP_FOLDER, f"segment_{uuid.uuid4()}.wav")
                         
                         # 使用异步运行
-                        asyncio.run(communicate.save(segment_path))
+                        try:
+                            asyncio.run(communicate.save(segment_path))
+                        except RuntimeError as e:
+                            # 如果事件循环已经在运行，使用 nest_asyncio
+                            import nest_asyncio
+                            nest_asyncio.apply()
+                            asyncio.run(communicate.save(segment_path))
                         
                         # 检查文件是否成功生成
                         if not os.path.exists(segment_path) or os.path.getsize(segment_path) == 0:
@@ -120,11 +127,20 @@ def convert():
                             print(f"加载音频失败，尝试使用 ffmpeg 重新编码: {e}")
                             # 如果直接加载失败，尝试使用 ffmpeg 重新编码
                             temp_path = segment_path.replace('.wav', '_fixed.wav')
-                            os.system(f'ffmpeg -y -i "{segment_path}" "{temp_path}" 2>/dev/null')
-                            if os.path.exists(temp_path):
-                                segment = AudioSegment.from_file(temp_path)
-                                os.remove(temp_path)
-                            else:
+                            try:
+                                subprocess.run(
+                                    ['ffmpeg', '-y', '-i', segment_path, temp_path],
+                                    check=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE
+                                )
+                                if os.path.exists(temp_path):
+                                    segment = AudioSegment.from_file(temp_path)
+                                    os.remove(temp_path)
+                                else:
+                                    raise Exception("ffmpeg 重新编码失败")
+                            except subprocess.CalledProcessError as ffmpeg_error:
+                                print(f"ffmpeg 错误: {ffmpeg_error.stderr.decode()}")
                                 raise
                         
                         # 计算需要的静音时长
@@ -255,7 +271,13 @@ def preview():
         communicate = edge_tts.Communicate(text, voice, rate=rate_str)
         
         # 使用异步运行
-        asyncio.run(communicate.save(output_path))
+        try:
+            asyncio.run(communicate.save(output_path))
+        except RuntimeError as e:
+            # 如果事件循环已经在运行，使用 nest_asyncio
+            import nest_asyncio
+            nest_asyncio.apply()
+            asyncio.run(communicate.save(output_path))
         
         # 检查文件是否成功生成
         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
