@@ -109,8 +109,23 @@ def convert():
                         # 使用异步运行
                         asyncio.run(communicate.save(segment_path))
                         
-                        # 加载音频段
-                        segment = AudioSegment.from_wav(segment_path)
+                        # 检查文件是否成功生成
+                        if not os.path.exists(segment_path) or os.path.getsize(segment_path) == 0:
+                            raise Exception(f"音频文件生成失败: {segment_path}")
+                        
+                        # 加载音频段 - 使用 from_file 自动检测格式
+                        try:
+                            segment = AudioSegment.from_file(segment_path)
+                        except Exception as e:
+                            print(f"加载音频失败，尝试使用 ffmpeg 重新编码: {e}")
+                            # 如果直接加载失败，尝试使用 ffmpeg 重新编码
+                            temp_path = segment_path.replace('.wav', '_fixed.wav')
+                            os.system(f'ffmpeg -y -i "{segment_path}" "{temp_path}" 2>/dev/null')
+                            if os.path.exists(temp_path):
+                                segment = AudioSegment.from_file(temp_path)
+                                os.remove(temp_path)
+                            else:
+                                raise
                         
                         # 计算需要的静音时长
                         if i == 0:
@@ -241,6 +256,10 @@ def preview():
         
         # 使用异步运行
         asyncio.run(communicate.save(output_path))
+        
+        # 检查文件是否成功生成
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            return jsonify({'error': '音频文件生成失败'}), 500
         
         # 返回音频文件
         return send_file(output_path, mimetype='audio/wav')
