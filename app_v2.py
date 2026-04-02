@@ -107,16 +107,20 @@ def convert():
                         segment_path = os.path.join(TEMP_FOLDER, f"segment_{uuid.uuid4()}.wav")
                         
                         # 使用异步运行
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        loop.run_until_complete(communicate.save(segment_path))
-                        loop.close()
+                        asyncio.run(communicate.save(segment_path))
                         
                         # 加载音频段
                         segment = AudioSegment.from_wav(segment_path)
                         
                         # 计算需要的静音时长
-                        if i > 0:
+                        if i == 0:
+                            # 第一个字幕段：检查是否需要添加起始静音
+                            start_ms = sub.start.ordinal
+                            if start_ms > 0:
+                                silence = AudioSegment.silent(duration=start_ms)
+                                audio_segments.append(silence)
+                        else:
+                            # 后续字幕段：计算与前一段的时间间隔
                             time_gap = sub.start - subs[i-1].end
                             gap_ms = time_gap.ordinal  # 毫秒
                             
@@ -236,10 +240,7 @@ def preview():
         communicate = edge_tts.Communicate(text, voice, rate=rate_str)
         
         # 使用异步运行
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(communicate.save(output_path))
-        loop.close()
+        asyncio.run(communicate.save(output_path))
         
         # 返回音频文件
         return send_file(output_path, mimetype='audio/wav')
